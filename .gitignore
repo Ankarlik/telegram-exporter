@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Local sessions/config
+telegram_session.session
+telegram_session.session-journal
+*.session
+*.session-journal
+~/.tg_exporter/
+
+# Generated icons
+icons/

@@ -10,43 +10,27 @@
 - Экспорт всей истории в JSON
 - Поддержка больших чатов (стриминговая запись в файл)
 
-## Первый запуск (macOS)
+## Скачать и установить
 
-1) Установи Python 3.10+ (если нет):
-- https://www.python.org/downloads/
+### macOS
+1) Скачай `TelegramExporter.dmg` из **Releases**
+2) Открой DMG → перетащи приложение в **Applications**
+3) Запусти приложение
 
-2) Установи зависимости:
+### Windows
+1) Скачай `TelegramExporterSetup.exe` из **Releases**
+2) Запусти установщик → Next → Install
 
-```
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+### Первый запуск без подписи (macOS)
+Если появится предупреждение безопасности:
+1) Открой `Applications` и сделай правый клик по приложению → **Open**
+2) Подтверди запуск
+3) Либо: System Settings → Privacy & Security → **Open Anyway**
 
-3) Запусти приложение:
-
-```
-python3 app.py
-```
-
-## Первый запуск (Windows)
-
-1) Установи Python 3.10+:
-- https://www.python.org/downloads/windows/
-
-2) Установи зависимости:
-
-```
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-3) Запусти приложение:
-
-```
-python app.py
-```
+### Первый запуск без подписи (Windows)
+Если SmartScreen блокирует запуск:
+1) Нажми **More info**
+2) Нажми **Run anyway**
 
 ## Получение API ID / API Hash
 
@@ -87,26 +71,19 @@ pyinstaller --windowed --onefile --name "Telegram Exporter" app.py
 
 Готовый `.exe` будет в папке `dist/Telegram Exporter.exe`.
 
-## Самый простой вариант для пользователя
+## Для разработчиков (сборка)
 
 ### macOS (DMG)
-Собираешь `.app`, затем DMG:
 ```
 ./scripts/build_mac.sh
 ```
-Пользователь открывает `.dmg` и перетаскивает приложение в Applications.
-
-### Первый запуск без подписи (macOS)
-Если появится предупреждение безопасности:
-1) Открой `Applications` и сделай правый клик по приложению → **Open**
-2) Подтверди запуск
-3) Либо: System Settings → Privacy & Security → **Open Anyway**
+Файл: `dist/TelegramExporter.dmg`
 
 ### Windows (EXE)
 ```
 powershell -ExecutionPolicy Bypass -File .\scripts\build_win.ps1
 ```
-Пользователь просто запускает `Telegram Exporter.exe`.
+Файл: `dist/TelegramExporter.exe`
 
 ### Windows (Installer: Next → Next → Install)
 1) Скачай и установи Inno Setup: https://jrsoftware.org/isinfo.php
@@ -115,12 +92,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_win.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\build_win_installer.ps1
 ```
 3) Открой `installer\TelegramExporter.iss` в Inno Setup и нажми **Compile**.
-Готовый установщик будет в `dist\TelegramExporterSetup.exe`.
-
-### Первый запуск без подписи (Windows)
-Если SmartScreen блокирует запуск:
-1) Нажми **More info**
-2) Нажми **Run anyway**
+Файл: `dist\TelegramExporterSetup.exe`
 
 ## Иконка приложения
 

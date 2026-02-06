@@ -11,15 +11,20 @@ OutputDir=dist
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=..\icons\app.ico
-UninstallDisplayIcon={app}\Telegram Exporter.exe
+
+#define IconFile "..\icons\app.ico"
+#ifexist IconFile
+SetupIconFile={#IconFile}
+#endif
+
+UninstallDisplayIcon={app}\TelegramExporter.exe
 
 [Files]
-Source: "..\dist\Telegram Exporter.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\TelegramExporter.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Telegram Exporter"; Filename: "{app}\Telegram Exporter.exe"
-Name: "{commondesktop}\Telegram Exporter"; Filename: "{app}\Telegram Exporter.exe"; Tasks: desktopicon
+Name: "{group}\Telegram Exporter"; Filename: "{app}\TelegramExporter.exe"
+Name: "{commondesktop}\Telegram Exporter"; Filename: "{app}\TelegramExporter.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; GroupDescription: "Дополнительно:"

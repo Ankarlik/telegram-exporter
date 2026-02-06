@@ -729,6 +729,8 @@ class App(ctk.CTk):
             self.queue.put(("chats_loaded", dialogs))
             try:
                 filters = c(functions.messages.GetDialogFiltersRequest())
+                if hasattr(filters, "filters"):
+                    filters = filters.filters
             except Exception:
                 filters = []
             folder_peers = {}

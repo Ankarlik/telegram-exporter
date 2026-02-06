@@ -132,8 +132,12 @@ def _build_topics_index(topic_map: dict[str, str]) -> str:
         return ""
     items = []
     for topic_id, title in topic_map.items():
-        title = title.strip() if title and str(title).strip() else "Без названия"
-        items.append((topic_id, title))
+        normalized = title.strip() if title and str(title).strip() else ""
+        if not normalized:
+            continue
+        items.append((topic_id, normalized))
+    if not items:
+        return ""
     items.sort(key=lambda x: (int(x[0]) if str(x[0]).isdigit() else 10**9, x[1]))
     lines = [f"{idx}. {title} (topic_id={topic_id})" for idx, (topic_id, title) in enumerate(items, 1)]
     return "# Темы чата (" + str(len(items)) + ")\n\n" + "\n".join(lines)
@@ -1168,11 +1172,12 @@ class App(ctk.CTk):
             md_written = 0
             popular_enabled = self.popular_enabled
             popular_min = self.popular_min_reactions
-            popular_entries: list[str] = []
+            popular_entries: list[tuple[str, int]] = []
             popular_written = False
             topic_map: dict[str, str] = {}
             service_topic_by_id: dict[int, str] = {}
             has_topics = False
+            is_forum = bool(getattr(getattr(dialog, "entity", None), "forum", False))
             analytics_enabled = self.analytics_enabled and self._is_group_chat(dialog)
             author_counts: dict[str, int] = {}
             author_messages: dict[str, list[str]] = {}
@@ -1232,7 +1237,7 @@ class App(ctk.CTk):
                     json.dump(msg_data, f, ensure_ascii=False)
 
                     if msg_data.get("type") != "message":
-                        if msg_data.get("topic_title"):
+                        if is_forum and msg_data.get("topic_title"):
                             has_topics = True
                             service_topic_id = msg_data.get("topic_id") or msg_data.get("id")
                             if service_topic_id is not None:
@@ -1247,17 +1252,19 @@ class App(ctk.CTk):
                             self.queue.put(("export_progress", (count, None)))
                         continue
 
-                    topic_id = _resolve_topic_id(msg_data, service_topic_by_id)
-                    if topic_id:
-                        has_topics = True
-                        if topic_id not in topic_map:
-                            topic_map[topic_id] = ""
-                        if msg_data.get("topic_title"):
-                            topic_map[topic_id] = msg_data.get("topic_title") or ""
-                    if msg_data.get("is_topic_message") or msg_data.get("is_forum_topic"):
-                        has_topics = True
-
-                    topic_comment = _build_topic_comment(topic_id, topic_map) if has_topics else ""
+                    topic_id = None
+                    topic_comment = ""
+                    if is_forum:
+                        topic_id = _resolve_topic_id(msg_data, service_topic_by_id)
+                        if topic_id:
+                            has_topics = True
+                            if topic_id not in topic_map:
+                                topic_map[topic_id] = ""
+                            if msg_data.get("topic_title"):
+                                topic_map[topic_id] = msg_data.get("topic_title") or ""
+                        if msg_data.get("is_topic_message") or msg_data.get("is_forum_topic"):
+                            has_topics = True
+                        topic_comment = _build_topic_comment(topic_id, topic_map) if has_topics else ""
                     formatted = _format_markdown_message(msg_data)
                     rendered = f"{topic_comment}{formatted}" if topic_comment else formatted
 
@@ -1291,7 +1298,7 @@ class App(ctk.CTk):
                                 except Exception:
                                     continue
                             if total_reactions >= popular_min:
-                                popular_entries.append(rendered)
+                                popular_entries.append((rendered, total_reactions))
 
                     count += 1
                     if total and count % 100 == 0:
@@ -1301,7 +1308,7 @@ class App(ctk.CTk):
                 f.write('\n  ]\n}\n')
 
             add_md_chunk()
-            topics_index = _build_topics_index(topic_map)
+            topics_index = _build_topics_index(topic_map) if is_forum else ""
             if md_pending_first or topics_index:
                 first_content = ""
                 if topics_index:
@@ -1315,7 +1322,10 @@ class App(ctk.CTk):
                 header = f"# Популярные сообщения (>= {popular_min} реакций)"
                 content = header
                 if popular_entries:
-                    content = header + "\n\n" + "\n\n".join(popular_entries)
+                    blocks = []
+                    for entry_text, total_reactions in popular_entries:
+                        blocks.append(f"## Реакций: {total_reactions}\n\n{entry_text}")
+                    content = header + "\n\n" + "\n\n---\n\n".join(blocks)
                 pop_path = os.path.join(export_dir, f"{md_prefix}_popular.md")
                 normalized = content.replace("\r\n", "\n").replace("\r", "\n")
                 with_bom = "\ufeff" + normalized
@@ -1348,14 +1358,46 @@ class App(ctk.CTk):
                     analytics_written.append("top_authors.md")
 
                 if activity_counts:
+                    weekday_names = [
+                        "Понедельник",
+                        "Вторник",
+                        "Среда",
+                        "Четверг",
+                        "Пятница",
+                        "Суббота",
+                        "Воскресенье",
+                    ]
                     lines = [
                         "# Активность по дням",
                         "",
-                        "| Дата | Сообщений |",
-                        "| --- | --- |",
+                        "| Дата | День недели | Сообщений |",
+                        "| --- | --- | --- |",
                     ]
                     for day in sorted(activity_counts.keys()):
-                        lines.append(f"| {day} | {activity_counts[day]} |")
+                        weekday = ""
+                        try:
+                            dt = datetime.date.fromisoformat(day)
+                            weekday = weekday_names[dt.weekday()]
+                        except Exception:
+                            weekday = ""
+                        lines.append(f"| {day} | {weekday} | {activity_counts[day]} |")
+                    total_messages = sum(activity_counts.values())
+                    hot_days = sorted(activity_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+                    if hot_days:
+                        lines.append("")
+                        lines.append("## Самые горячие дни")
+                        lines.append("")
+                        for day, count_messages in hot_days:
+                            weekday = ""
+                            try:
+                                dt = datetime.date.fromisoformat(day)
+                                weekday = weekday_names[dt.weekday()]
+                            except Exception:
+                                weekday = ""
+                            suffix = f" ({weekday})" if weekday else ""
+                            lines.append(f"- {day}{suffix}: {count_messages}")
+                        lines.append("")
+                        lines.append(f"Всего сообщений: {total_messages}")
                     act_path = os.path.join(export_dir, "activity.md")
                     normalized = "\n".join(lines).replace("\r\n", "\n").replace("\r", "\n")
                     with_bom = "\ufeff" + normalized.strip() + "\n"

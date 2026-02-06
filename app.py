@@ -192,12 +192,32 @@ class ModernEntry(ctk.CTkEntry):
         self._bind_clipboard()
 
     def _bind_clipboard(self):
-        self.bind("<Command-v>", self._paste)
-        self.bind("<Control-v>", self._paste)
+        for seq in (
+            "<Command-v>",
+            "<Command-V>",
+            "<Control-v>",
+            "<Control-V>",
+            "<<Paste>>",
+            "<Control-KeyPress>",
+            "<Command-KeyPress>",
+        ):
+            self.bind(seq, self._paste)
 
     def _paste(self, event=None):
         try:
+            if event is not None:
+                if str(getattr(event, "type", "")) != "VirtualEvent":
+                    keysym = getattr(event, "keysym", "")
+                    char = getattr(event, "char", "")
+                    if keysym and keysym not in ("v", "V", "Cyrillic_em", "Cyrillic_EM"):
+                        if char != "\x16":  # Ctrl+V
+                            return
             text = self.clipboard_get()
+            try:
+                if self.selection_present():
+                    self.delete("sel.first", "sel.last")
+            except tk.TclError:
+                pass
             self.insert(tk.INSERT, text)
             return "break"
         except: pass
@@ -714,7 +734,20 @@ class App(ctk.CTk):
             if len(chat_title) > 60:
                 chat_title = chat_title[:60].rstrip("_ ")
             export_dir = os.path.join(path, f"{chat_title}_{timestamp}")
-            os.makedirs(export_dir, exist_ok=True)
+            try:
+                os.makedirs(export_dir, exist_ok=True)
+            except Exception as e:
+                msg = str(e)
+                if "WinError" in msg:
+                    msg = (
+                        "Не удалось создать папку экспорта.\n"
+                        f"Путь: {export_dir}\n"
+                        "Выберите другую папку (Desktop/Downloads).\n"
+                        "Если включена «Контролируемый доступ к папкам» "
+                        "в Windows Security — добавьте TelegramExporter.exe в разрешенные."
+                    )
+                self.queue.put(("export_error", msg))
+                return
             full_path = os.path.join(export_dir, "result.json")
 
             total = None
@@ -743,7 +776,22 @@ class App(ctk.CTk):
                 self.queue.put(("export_progress", (total, total)))
             self.queue.put(("export_done", f"Готово: {full_path}"))
         except Exception as e:
-            self.queue.put(("export_error", str(e)))
+            msg = str(e)
+            if "WinError 2" in msg or "No such file" in msg:
+                msg = (
+                    "Не удалось создать файл экспорта.\n"
+                    f"Путь: {export_dir}\n"
+                    "Выберите другую папку (Desktop/Downloads).\n"
+                    "Если включена «Контролируемый доступ к папкам» "
+                    "в Windows Security — добавьте TelegramExporter.exe в разрешенные."
+                )
+            elif "WinError 5" in msg or "Access is denied" in msg:
+                msg = (
+                    "Нет доступа к папке экспорта.\n"
+                    f"Путь: {export_dir}\n"
+                    "Выберите другую папку или разрешите приложение в Windows Security."
+                )
+            self.queue.put(("export_error", msg))
 
     # --- UI Updates ---
 

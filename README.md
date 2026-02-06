@@ -55,24 +55,6 @@
 `<НазваниеЧата>_YYYY-MM-DD_HH-MM-SS/result.json`
 которую можно загрузить в твой конвертер.
 
-## Сборка для друга (macOS)
-
-```
-pip install pyinstaller
-pyinstaller --windowed --name "Telegram Exporter" app.py
-```
-
-Готовое приложение будет в папке `dist/Telegram Exporter.app`.
-
-## Сборка для друга (Windows)
-
-```
-pip install pyinstaller
-pyinstaller --windowed --onefile --name "Telegram Exporter" app.py
-```
-
-Готовый `.exe` будет в папке `dist/Telegram Exporter.exe`.
-
 ## Для разработчиков (сборка)
 
 ### macOS (DMG)

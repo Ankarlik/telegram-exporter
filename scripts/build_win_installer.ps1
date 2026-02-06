@@ -21,5 +21,5 @@ if (Test-Path $iconPng) {
 
 pyinstaller --windowed --onefile --name "TelegramExporter" $iconArg app.py
 
-Write-Host "EXE готов: dist\TelegramExporter.exe"
-Write-Host "Дальше откройте Inno Setup и соберите installer\TelegramExporter.iss"
+Write-Host "EXE ready: dist\TelegramExporter.exe"
+Write-Host "Open installer\\TelegramExporter.iss in Inno Setup to compile installer."

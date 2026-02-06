@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Build DMG
-        run: ./scripts/build_mac.sh
+        run: chmod +x ./scripts/build_mac.sh && ./scripts/build_mac.sh
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:

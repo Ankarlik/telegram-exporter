@@ -291,6 +291,7 @@ def message_to_export(message) -> dict:
     sender_type = None
     from_peer_type = None
     has_post_author = False
+    is_out = False
     if message.sender:
         sender = get_display_name(message.sender)
         username = getattr(message.sender, "username", None)
@@ -299,6 +300,7 @@ def message_to_export(message) -> dict:
     if raw_from is not None:
         from_peer_type = type(raw_from).__name__
     has_post_author = bool(getattr(message, "post_author", None))
+    is_out = bool(getattr(message, "out", False))
     
     raw_text = getattr(message, "raw_text", None)
     msg_text = raw_text if raw_text is not None else message.message
@@ -316,6 +318,7 @@ def message_to_export(message) -> dict:
     }
     msg["is_post"] = bool(getattr(message, "post", False))
     msg["has_post_author"] = has_post_author
+    msg["out"] = is_out
 
     if message.reply_to_msg_id: msg["reply_to_message_id"] = message.reply_to_msg_id
     reply_to = getattr(message, "reply_to", None)
@@ -1234,7 +1237,15 @@ class App(ctk.CTk):
             debug_post_author_msgs = 0
             debug_sender_matches_dialog = 0
             debug_author_id_negative = 0
+            debug_out_msgs = 0
+            debug_self_matches = 0
             dialog_entity_id = getattr(getattr(dialog, "entity", None), "id", None)
+            self_user_id = None
+            try:
+                me = c.get_me()
+                self_user_id = getattr(me, "id", None)
+            except Exception:
+                self_user_id = None
 
             _debug_log(
                 "app.py:_export_task:start",
@@ -1245,6 +1256,7 @@ class App(ctk.CTk):
                     "popular_enabled": popular_enabled,
                     "entity_type": type(getattr(dialog, "entity", None)).__name__,
                     "entity_id": dialog_entity_id,
+                    "self_user_id": self_user_id,
                     "entity_flags": {
                         "broadcast": bool(getattr(getattr(dialog, "entity", None), "broadcast", False)),
                         "megagroup": bool(getattr(getattr(dialog, "entity", None), "megagroup", False)),
@@ -1386,6 +1398,10 @@ class App(ctk.CTk):
                             debug_post_msgs += 1
                         if msg_data.get("has_post_author"):
                             debug_post_author_msgs += 1
+                        if msg_data.get("out"):
+                            debug_out_msgs += 1
+                        if self_user_id and author_id == self_user_id:
+                            debug_self_matches += 1
 
                     msg_words = len(rendered.split()) if rendered else 0
                     if md_word_count + msg_words > md_words_per_file and md_current.strip():
@@ -1564,6 +1580,8 @@ class App(ctk.CTk):
                         "post_author_msgs": debug_post_author_msgs,
                         "sender_matches_dialog": debug_sender_matches_dialog,
                         "author_id_negative": debug_author_id_negative,
+                        "out_msgs": debug_out_msgs,
+                        "self_matches": debug_self_matches,
                     },
                     "H2",
                 )

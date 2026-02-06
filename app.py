@@ -477,6 +477,7 @@ class App(ctk.CTk):
         self.api_creds = {}
         self.client = None
         self.phone_hash = None
+        self.phone_number = None
         self.all_dialogs = []
         
         self._tg_queue = queue.Queue()
@@ -601,6 +602,10 @@ class App(ctk.CTk):
 
     def _send_code_task(self, phone):
         try:
+            phone = (phone or "").strip()
+            if not phone:
+                self.queue.put(("error", "Введите номер телефона."))
+                return
             c = self._get_client()
             c.connect()
             if c.is_user_authorized():
@@ -609,22 +614,38 @@ class App(ctk.CTk):
                 return
             
             sent = c.send_code_request(phone)
+            self.phone_number = phone
             self.phone_hash = sent.phone_code_hash
             self.queue.put(("code_sent", None))
         except Exception as e:
             self.queue.put(("error", str(e)))
 
     def verify_code(self, code, password):
-        self._run_bg(self._verify_task, self.login_view.phone_entry.get(), code, password)
+        self._run_bg(self._verify_task, code, password)
 
-    def _verify_task(self, phone, code, pwd):
+    def _verify_task(self, code, pwd):
         try:
+            code = (code or "").strip()
+            if not code:
+                self.queue.put(("error", "Введите код из Telegram."))
+                return
+            if not self.phone_hash:
+                self.queue.put(("error", "Сначала нажмите «Получить код»."))
+                return
+            phone = (self.phone_number or self.login_view.phone_entry.get() or "").strip()
+            if not phone:
+                self.queue.put(("error", "Введите номер телефона."))
+                return
             c = self._get_client()
             c.sign_in(phone=phone, code=code, phone_code_hash=self.phone_hash)
             self._persist_session()
             self.queue.put(("login_success", None))
         except SessionPasswordNeededError:
             try:
+                pwd = (pwd or "").strip()
+                if not pwd:
+                    self.queue.put(("error", "Нужен пароль 2FA."))
+                    return
                 c = self._get_client()
                 c.sign_in(password=pwd)
                 self._persist_session()
@@ -665,6 +686,8 @@ class App(ctk.CTk):
         if client:
             client.disconnect()
             self.client = None
+        self.phone_hash = None
+        self.phone_number = None
         self.api_creds["session"] = None
         os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
         with open(self.config_path, "w") as f:

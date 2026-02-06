@@ -448,6 +448,7 @@ class ChatListView(ctk.CTkFrame):
         self._export_total = None
         self._folder_names = ["Все чаты"]
         self._folder_var = tk.StringVar(value="Все чаты")
+        self._words_var = tk.IntVar(value=50)
         
         # Header / Toolbar
         self.toolbar = ctk.CTkFrame(self, fg_color="transparent", height=60)
@@ -477,6 +478,24 @@ class ChatListView(ctk.CTkFrame):
             height=32,
         )
         self.folder_menu.pack(side="left", padx=(10, 0))
+
+        # Words per file slider
+        self.words_bar = ctk.CTkFrame(self, fg_color="transparent")
+        self.words_bar.pack(fill="x", padx=20, pady=(0, 12))
+        self.words_label = ctk.CTkLabel(self.words_bar, text="Разбивка (тыс. слов)", text_color=COLORS["text_sec"])
+        self.words_label.pack(side="left")
+        self.words_value = ctk.CTkLabel(self.words_bar, text="50", text_color=COLORS["text_sec"])
+        self.words_value.pack(side="right")
+        self.words_slider = ctk.CTkSlider(
+            self.words_bar,
+            from_=50,
+            to=500,
+            number_of_steps=45,
+            command=self._on_words_change,
+            height=12,
+        )
+        self.words_slider.set(50)
+        self.words_slider.pack(fill="x", pady=(6, 0))
 
         # Search
         self.search_entry = ModernEntry(self, placeholder_text="Поиск чатов...")
@@ -567,6 +586,16 @@ class ChatListView(ctk.CTkFrame):
         self.app.set_current_folder(value)
         query = self.search_entry.get().strip()
         self.app.filter_chats(query)
+
+    def _on_words_change(self, value):
+        rounded = int(round(value / 10) * 10)
+        if rounded < 50:
+            rounded = 50
+        if rounded > 500:
+            rounded = 500
+        self._words_var.set(rounded)
+        self.words_value.configure(text=str(rounded))
+        self.app.set_md_words_per_file(rounded * 1000)
 
     def _get_selected_dialog(self):
         selection = self.listbox.curselection()
@@ -671,6 +700,7 @@ class App(ctk.CTk):
         self.all_dialogs = []
         self.folder_peers = {}
         self.current_folder = "Все чаты"
+        self.md_words_per_file = 50000
         
         self._tg_queue = queue.Queue()
         self.queue = queue.Queue()
@@ -911,6 +941,9 @@ class App(ctk.CTk):
     def set_current_folder(self, folder_name):
         self.current_folder = folder_name or "Все чаты"
 
+    def set_md_words_per_file(self, value: int):
+        self.md_words_per_file = max(10000, int(value))
+
     def logout(self):
         self._run_bg(self._logout_task)
 
@@ -963,7 +996,7 @@ class App(ctk.CTk):
                 return
             full_path = os.path.join(export_dir, "result.json")
             md_prefix = _sanitize_md_filename(dialog.name or "Telegram Chat")
-            md_words_per_file = MARKDOWN_SETTINGS["words_per_file"]
+            md_words_per_file = self.md_words_per_file
             md_current = ""
             md_word_count = 0
             md_next_index = 1

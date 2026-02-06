@@ -13,10 +13,11 @@ from tkinter import filedialog, messagebox
 from typing import Optional
 
 import customtkinter as ctk
+from telethon import functions
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from telethon.sync import TelegramClient
-from telethon.utils import get_display_name
+from telethon.utils import get_display_name, get_peer_id
 
 # --- CONFIG & THEME ---
 
@@ -313,6 +314,8 @@ class ChatListView(ctk.CTkFrame):
         self.dialogs = []
         self.dialog_map = {}
         self._export_total = None
+        self._folder_names = ["Все чаты"]
+        self._folder_var = tk.StringVar(value="Все чаты")
         
         # Header / Toolbar
         self.toolbar = ctk.CTkFrame(self, fg_color="transparent", height=60)
@@ -327,6 +330,21 @@ class ChatListView(ctk.CTkFrame):
         
         self.refresh_btn = ModernButton(self.toolbar, text="Обновить", variant="secondary", width=110, command=self.app.load_chats)
         self.refresh_btn.pack(side="right")
+
+        # Folders
+        self.folder_bar = ctk.CTkFrame(self, fg_color="transparent")
+        self.folder_bar.pack(fill="x", padx=20, pady=(0, 12))
+        self.folder_label = ctk.CTkLabel(self.folder_bar, text="Папка", text_color=COLORS["text_sec"])
+        self.folder_label.pack(side="left")
+        self.folder_menu = ctk.CTkOptionMenu(
+            self.folder_bar,
+            values=self._folder_names,
+            variable=self._folder_var,
+            command=self._on_folder_change,
+            width=220,
+            height=32,
+        )
+        self.folder_menu.pack(side="left", padx=(10, 0))
 
         # Search
         self.search_entry = ModernEntry(self, placeholder_text="Поиск чатов...")
@@ -400,7 +418,21 @@ class ChatListView(ctk.CTkFrame):
 
         self.status_lbl.configure(text=f"Чатов: {len(self.dialogs)}")
 
+    def set_folders(self, folder_names):
+        self._folder_names = ["Все чаты"] + (folder_names or [])
+        try:
+            self.folder_menu.configure(values=self._folder_names)
+        except Exception:
+            pass
+        if self._folder_var.get() not in self._folder_names:
+            self._folder_var.set("Все чаты")
+
     def _on_search(self, event):
+        query = self.search_entry.get().strip()
+        self.app.filter_chats(query)
+
+    def _on_folder_change(self, value):
+        self.app.set_current_folder(value)
         query = self.search_entry.get().strip()
         self.app.filter_chats(query)
 
@@ -505,6 +537,8 @@ class App(ctk.CTk):
         self.phone_hash = None
         self.phone_number = None
         self.all_dialogs = []
+        self.folder_peers = {}
+        self.current_folder = "Все чаты"
         
         self._tg_queue = queue.Queue()
         self.queue = queue.Queue()
@@ -693,16 +727,55 @@ class App(ctk.CTk):
             dialogs = c.get_dialogs()
             self.all_dialogs = dialogs
             self.queue.put(("chats_loaded", dialogs))
+            try:
+                filters = c(functions.messages.GetDialogFiltersRequest())
+            except Exception:
+                filters = []
+            folder_peers = {}
+            folder_names = []
+            for f in (filters or []):
+                title = getattr(f, "title", None)
+                include_peers = getattr(f, "include_peers", None)
+                if not title or not include_peers:
+                    continue
+                peer_ids = set()
+                for p in include_peers:
+                    try:
+                        peer_ids.add(get_peer_id(p))
+                    except Exception:
+                        continue
+                if peer_ids:
+                    folder_peers[title] = peer_ids
+                    folder_names.append(title)
+            self.folder_peers = folder_peers
+            self.queue.put(("folders_loaded", folder_names))
         except Exception as e:
             self.queue.put(("error", str(e)))
 
     def filter_chats(self, query):
+        dialogs = self.all_dialogs
+        folder_name = self.current_folder
+        if folder_name and folder_name != "Все чаты":
+            peer_ids = self.folder_peers.get(folder_name, set())
+            if peer_ids:
+                filtered = []
+                for d in dialogs:
+                    try:
+                        pid = get_peer_id(d.entity)
+                    except Exception:
+                        pid = d.id
+                    if pid in peer_ids:
+                        filtered.append(d)
+                dialogs = filtered
         if not query:
-            self.chats_view.render_chats(self.all_dialogs)
+            self.chats_view.render_chats(dialogs)
             return
         q = query.lower()
-        res = [d for d in self.all_dialogs if q in (d.name or "").lower()]
+        res = [d for d in dialogs if q in (d.name or "").lower()]
         self.chats_view.render_chats(res)
+
+    def set_current_folder(self, folder_name):
+        self.current_folder = folder_name or "Все чаты"
 
     def logout(self):
         self._run_bg(self._logout_task)
@@ -819,6 +892,7 @@ class App(ctk.CTk):
                 elif kind == "code_sent": self.login_view.show_code_input()
                 elif kind == "login_success": self.show_chats()
                 elif kind == "chats_loaded": self.chats_view.render_chats(data)
+                elif kind == "folders_loaded": self.chats_view.set_folders(data)
                 elif kind == "export_start":
                     chat_name, total = data
                     self.chats_view.show_export_progress(chat_name, total)

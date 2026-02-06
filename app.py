@@ -144,6 +144,17 @@ def message_to_export(message) -> dict:
     }
 
     if message.reply_to_msg_id: msg["reply_to_message_id"] = message.reply_to_msg_id
+    reply_to = getattr(message, "reply_to", None)
+    if reply_to:
+        top_id = getattr(reply_to, "top_msg_id", None) or getattr(reply_to, "reply_to_top_id", None)
+        if top_id:
+            msg["topic_id"] = top_id
+            msg["is_topic_message"] = True
+        forum_flag = getattr(reply_to, "forum_topic", None)
+        if forum_flag is not None:
+            msg["is_forum_topic"] = bool(forum_flag)
+    if message.action and hasattr(message.action, "title"):
+        msg["topic_title"] = normalize_text(getattr(message.action, "title", ""))
     forwarded = build_forwarded_from(message.fwd_from)
     if forwarded: msg["forwarded_from"] = forwarded
     reactions = build_reactions(message)

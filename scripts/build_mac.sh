@@ -34,7 +34,10 @@ if [ -f "$ICON_PNG" ]; then
   ICON_ARG="--icon \"$ICON_ICNS\""
 fi
 
-eval "pyinstaller --windowed --name \"Telegram Exporter\" $ICON_ARG app.py"
+eval "pyinstaller --windowed --name \"Telegram Exporter\" $ICON_ARG \
+  --collect-all customtkinter \
+  --collect-all telethon \
+  app.py"
 
 APP_PATH="dist/Telegram Exporter.app"
 DMG_PATH="dist/TelegramExporter.dmg"

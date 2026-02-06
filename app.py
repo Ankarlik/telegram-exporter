@@ -7,6 +7,8 @@ import re
 import threading
 import tkinter as tk
 import platform
+import traceback
+from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import Optional
 
@@ -54,6 +56,24 @@ def pick_color(value):
     if isinstance(value, tuple):
         return value[0] if ctk.get_appearance_mode() == "Light" else value[1]
     return value
+
+
+def _log_path() -> Path:
+    return Path(os.path.expanduser("~/.tg_exporter/app.log"))
+
+
+def _write_fatal_error(exc: BaseException) -> None:
+    try:
+        log_path = _log_path()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write("\n==== FATAL ====\n")
+            f.write(datetime.datetime.now().isoformat())
+            f.write("\n")
+            f.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+            f.write("\n")
+    except Exception:
+        pass
 
 def sanitize_filename(name: str) -> str:
     name = re.sub(r"[\\/:*?\"<>|]+", "_", name)
@@ -738,5 +758,16 @@ class App(ctk.CTk):
 
 
 if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+    try:
+        app = App()
+        app.mainloop()
+    except Exception as exc:
+        _write_fatal_error(exc)
+        try:
+            messagebox.showerror(
+                "Ошибка запуска",
+                "Приложение не смогло запуститься.\n"
+                "Файл лога: ~/.tg_exporter/app.log",
+            )
+        except Exception:
+            pass

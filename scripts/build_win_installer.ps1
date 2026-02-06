@@ -19,7 +19,7 @@ if (Test-Path $iconPng) {
     $iconArg = "--icon `"$iconIco`""
 }
 
-pyinstaller --windowed --onefile --name "TelegramExporter" $iconArg app.py
+pyinstaller --windowed --onefile --name "TelegramExporter" $iconArg --collect-all customtkinter --collect-all telethon app.py
 
 Write-Host "EXE ready: dist\TelegramExporter.exe"
 Write-Host "Open installer\\TelegramExporter.iss in Inno Setup to compile installer."

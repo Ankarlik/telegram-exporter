@@ -60,7 +60,6 @@ jobs:
           cp dist/telegramexporter-windows/TelegramExporterSetup.exe release/
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
-        if: ${{ secrets.DOWNLOADS_TOKEN != '' }}
         with:
           token: ${{ secrets.DOWNLOADS_TOKEN }}
           repository: morf3uzzz/telegram-exporter-downloads

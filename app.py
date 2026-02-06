@@ -203,26 +203,21 @@ class ModernEntry(ctk.CTkEntry):
         self._bind_clipboard()
 
     def _bind_clipboard(self):
-        for seq in (
-            "<Command-v>",
-            "<Command-V>",
-            "<Control-v>",
-            "<Control-V>",
-            "<<Paste>>",
-            "<Control-KeyPress>",
-            "<Command-KeyPress>",
-        ):
+        for seq in ("<Command-v>", "<Command-V>", "<Control-v>", "<Control-V>", "<<Paste>>"):
             self.bind(seq, self._paste)
+        self.bind("<Control-KeyPress>", self._on_ctrl_keypress)
+        self.bind("<Command-KeyPress>", self._on_cmd_keypress)
+
+    def _on_ctrl_keypress(self, event):
+        if getattr(event, "keysym", "") in ("v", "V", "Cyrillic_em", "Cyrillic_EM"):
+            return self._paste(event)
+
+    def _on_cmd_keypress(self, event):
+        if getattr(event, "keysym", "") in ("v", "V", "Cyrillic_em", "Cyrillic_EM"):
+            return self._paste(event)
 
     def _paste(self, event=None):
         try:
-            if event is not None:
-                if str(getattr(event, "type", "")) != "VirtualEvent":
-                    keysym = getattr(event, "keysym", "")
-                    char = getattr(event, "char", "")
-                    if keysym and keysym not in ("v", "V", "Cyrillic_em", "Cyrillic_EM"):
-                        if char != "\x16":  # Ctrl+V
-                            return
             text = self.clipboard_get()
             try:
                 if self.selection_present():

@@ -289,10 +289,16 @@ def message_to_export(message) -> dict:
     sender = None
     username = None
     sender_type = None
+    from_peer_type = None
+    has_post_author = False
     if message.sender:
         sender = get_display_name(message.sender)
         username = getattr(message.sender, "username", None)
         sender_type = type(message.sender).__name__
+    raw_from = getattr(message, "from_id", None)
+    if raw_from is not None:
+        from_peer_type = type(raw_from).__name__
+    has_post_author = bool(getattr(message, "post_author", None))
     
     raw_text = getattr(message, "raw_text", None)
     msg_text = raw_text if raw_text is not None else message.message
@@ -304,10 +310,12 @@ def message_to_export(message) -> dict:
         "from": sender,
         "from_username": username,
         "from_type": sender_type,
+        "from_peer_type": from_peer_type,
         "from_id": message.sender_id,
         "text": normalize_text(msg_text),
     }
     msg["is_post"] = bool(getattr(message, "post", False))
+    msg["has_post_author"] = has_post_author
 
     if message.reply_to_msg_id: msg["reply_to_message_id"] = message.reply_to_msg_id
     reply_to = getattr(message, "reply_to", None)
@@ -1219,9 +1227,14 @@ class App(ctk.CTk):
             debug_popular_max = 0
             debug_popular_count = 0
             debug_sender_types: dict[str, int] = {}
+            debug_peer_types: dict[str, int] = {}
             debug_post_msgs = 0
             debug_non_user_positive = 0
             debug_post_positive = 0
+            debug_post_author_msgs = 0
+            debug_sender_matches_dialog = 0
+            debug_author_id_negative = 0
+            dialog_entity_id = getattr(getattr(dialog, "entity", None), "id", None)
 
             _debug_log(
                 "app.py:_export_task:start",
@@ -1231,6 +1244,7 @@ class App(ctk.CTk):
                     "analytics_enabled": analytics_enabled,
                     "popular_enabled": popular_enabled,
                     "entity_type": type(getattr(dialog, "entity", None)).__name__,
+                    "entity_id": dialog_entity_id,
                     "entity_flags": {
                         "broadcast": bool(getattr(getattr(dialog, "entity", None), "broadcast", False)),
                         "megagroup": bool(getattr(getattr(dialog, "entity", None), "megagroup", False)),
@@ -1351,10 +1365,18 @@ class App(ctk.CTk):
                             author_messages.setdefault(author_id, []).append(entry)
                             sender_type = msg_data.get("from_type") or "Unknown"
                             debug_sender_types[sender_type] = debug_sender_types.get(sender_type, 0) + 1
+                            peer_type = msg_data.get("from_peer_type") or "Unknown"
+                            debug_peer_types[peer_type] = debug_peer_types.get(peer_type, 0) + 1
                             if sender_type != "User":
                                 debug_non_user_positive += 1
                             if msg_data.get("is_post"):
                                 debug_post_positive += 1
+                            if msg_data.get("has_post_author"):
+                                debug_post_author_msgs += 1
+                            if isinstance(author_id, int) and author_id < 0:
+                                debug_author_id_negative += 1
+                            if dialog_entity_id and author_id == dialog_entity_id:
+                                debug_sender_matches_dialog += 1
                         date_key = _date_key(msg_data.get("date"))
                         if date_key:
                             activity_counts[date_key] = activity_counts.get(date_key, 0) + 1
@@ -1362,6 +1384,8 @@ class App(ctk.CTk):
                             debug_invalid_dates += 1
                         if msg_data.get("is_post"):
                             debug_post_msgs += 1
+                        if msg_data.get("has_post_author"):
+                            debug_post_author_msgs += 1
 
                     msg_words = len(rendered.split()) if rendered else 0
                     if md_word_count + msg_words > md_words_per_file and md_current.strip():
@@ -1533,9 +1557,13 @@ class App(ctk.CTk):
                         "activity_days": len(activity_counts),
                         "invalid_dates": debug_invalid_dates,
                         "sender_types": debug_sender_types,
+                        "peer_types": debug_peer_types,
                         "post_msgs": debug_post_msgs,
                         "non_user_positive": debug_non_user_positive,
                         "post_positive": debug_post_positive,
+                        "post_author_msgs": debug_post_author_msgs,
+                        "sender_matches_dialog": debug_sender_matches_dialog,
+                        "author_id_negative": debug_author_id_negative,
                     },
                     "H2",
                 )

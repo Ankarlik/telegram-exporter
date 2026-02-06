@@ -649,6 +649,8 @@ class ChatListView(ctk.CTkFrame):
 
     def _on_popular_toggle(self):
         self.app.set_popular_enabled(bool(self._popular_var.get()))
+        query = self.search_entry.get().strip()
+        self.app.filter_chats(query)
 
     def _on_popular_min_change(self, event=None):
         raw = (self._popular_min_var.get() or "").strip()
@@ -788,6 +790,8 @@ class App(ctk.CTk):
         self.phone_number = None
         self.all_dialogs = []
         self.folder_peers = {}
+        self.folder_filters = {}
+        self.folder_excludes = {}
         self.current_folder = "Все чаты"
         self.md_words_per_file = 50000
         self.popular_enabled = False
@@ -996,22 +1000,40 @@ class App(ctk.CTk):
             except Exception:
                 filters = []
             folder_peers = {}
+            folder_filters = {}
+            folder_excludes = {}
             folder_names = []
             for f in (filters or []):
                 title = normalize_text(getattr(f, "title", None))
-                include_peers = getattr(f, "include_peers", None)
-                if not title or not include_peers:
+                include_peers = getattr(f, "include_peers", None) or []
+                pinned_peers = getattr(f, "pinned_peers", None) or []
+                exclude_peers = getattr(f, "exclude_peers", None) or []
+                if not title:
                     continue
                 peer_ids = set()
-                for p in include_peers:
+                for p in list(include_peers) + list(pinned_peers):
                     try:
                         peer_ids.add(get_peer_id(p))
                     except Exception:
                         continue
-                if peer_ids:
+                exclude_ids = set()
+                for p in exclude_peers:
+                    try:
+                        exclude_ids.add(get_peer_id(p))
+                    except Exception:
+                        continue
+                has_flags = any(
+                    getattr(f, attr, False)
+                    for attr in ("contacts", "non_contacts", "groups", "broadcasts", "bots")
+                )
+                if peer_ids or has_flags or exclude_ids:
                     folder_peers[title] = peer_ids
+                    folder_filters[title] = f
+                    folder_excludes[title] = exclude_ids
                     folder_names.append(title)
             self.folder_peers = folder_peers
+            self.folder_filters = folder_filters
+            self.folder_excludes = folder_excludes
             self.queue.put(("folders_loaded", folder_names))
         except Exception as e:
             self.queue.put(("error", str(e)))
@@ -1052,10 +1074,70 @@ class App(ctk.CTk):
             return True
         return False
 
+    def _is_popular_candidate(self, dialog) -> bool:
+        entity = getattr(dialog, "entity", None)
+        if entity is None:
+            return False
+        if entity.__class__.__name__ == "User":
+            return False
+        return True
+
+    def _dialog_matches_filter(self, dialog, flt) -> bool:
+        if not flt:
+            return True
+        entity = getattr(dialog, "entity", None)
+        if entity is None:
+            return False
+        entity_type = entity.__class__.__name__
+        is_user = entity_type == "User"
+        is_bot = bool(getattr(entity, "bot", False))
+        is_channel = entity_type == "Channel"
+        is_group = entity_type == "Chat" or (is_channel and (getattr(entity, "megagroup", False) or getattr(entity, "gigagroup", False)))
+        is_broadcast = is_channel and getattr(entity, "broadcast", False)
+        is_contact = bool(getattr(entity, "contact", False))
+
+        include_any = False
+        allowed = False
+        if getattr(flt, "contacts", False):
+            include_any = True
+            if is_user and is_contact and not is_bot:
+                allowed = True
+        if getattr(flt, "non_contacts", False):
+            include_any = True
+            if is_user and not is_contact and not is_bot:
+                allowed = True
+        if getattr(flt, "bots", False):
+            include_any = True
+            if is_user and is_bot:
+                allowed = True
+        if getattr(flt, "groups", False):
+            include_any = True
+            if is_group:
+                allowed = True
+        if getattr(flt, "broadcasts", False):
+            include_any = True
+            if is_broadcast:
+                allowed = True
+        if include_any and not allowed:
+            return False
+
+        if getattr(flt, "exclude_archived", False) and getattr(dialog, "archived", False):
+            return False
+        if getattr(flt, "exclude_muted", False) and getattr(dialog, "muted", False):
+            return False
+        if getattr(flt, "exclude_read", False):
+            unread = getattr(dialog, "unread_count", 0) or 0
+            unread_mentions = getattr(dialog, "unread_mentions_count", 0) or 0
+            if unread == 0 and unread_mentions == 0:
+                return False
+        return True
+
     def _get_folder_dialogs(self, folder_name: str):
         dialogs = self.all_dialogs
         if folder_name and folder_name != "Все чаты":
             peer_ids = self.folder_peers.get(folder_name, set())
+            flt = self.folder_filters.get(folder_name)
+            exclude_ids = self.folder_excludes.get(folder_name, set())
             if peer_ids:
                 filtered = []
                 for d in dialogs:
@@ -1066,8 +1148,22 @@ class App(ctk.CTk):
                     if pid in peer_ids:
                         filtered.append(d)
                 dialogs = filtered
+            elif flt:
+                dialogs = [d for d in dialogs if self._dialog_matches_filter(d, flt)]
+            if exclude_ids:
+                filtered = []
+                for d in dialogs:
+                    try:
+                        pid = get_peer_id(d.entity)
+                    except Exception:
+                        pid = d.id
+                    if pid not in exclude_ids:
+                        filtered.append(d)
+                dialogs = filtered
         if self.analytics_enabled:
             dialogs = [d for d in dialogs if self._is_group_chat(d)]
+        if self.popular_enabled:
+            dialogs = [d for d in dialogs if self._is_popular_candidate(d)]
         return dialogs
 
     def export_current_folder(self):

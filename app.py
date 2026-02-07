@@ -607,33 +607,6 @@ class ChatListView(ctk.CTkFrame):
         self.status_lbl = ctk.CTkLabel(self, text="", text_color=COLORS["text_sec"])
         self.status_lbl.pack(fill="x", padx=20, pady=(0, 8))
 
-        # Export progress (top)
-        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent", width=360, height=46)
-        self.progress_frame.pack_propagate(False)
-        self.progress_header = ctk.CTkFrame(self.progress_frame, fg_color="transparent")
-        self.progress_header.pack(fill="x", padx=2, pady=(0, 6))
-        self.progress_header.grid_columnconfigure(0, weight=1)
-        self.progress_label = ctk.CTkLabel(self.progress_header, text="", text_color=COLORS["text_sec"])
-        self.progress_label.grid(row=0, column=0, sticky="w")
-        self.progress_chat_label = ctk.CTkLabel(self.progress_header, text="", text_color=COLORS["text_sec"])
-        self.progress_chat_label.grid(row=0, column=1, sticky="e")
-        self.progress_row = ctk.CTkFrame(self.progress_frame, fg_color="transparent")
-        self.progress_row.pack(fill="x")
-        self.progress_row.grid_columnconfigure(0, weight=1)
-        self.progress_bar = ctk.CTkProgressBar(self.progress_row, height=8, corner_radius=6, width=320)
-        self.progress_bar.grid(row=0, column=0, sticky="w")
-        self.cancel_btn = ModernButton(
-            self.progress_row,
-            text="×",
-            variant="secondary",
-            width=28,
-            height=26,
-            command=self._on_cancel_export,
-        )
-        self.cancel_btn.grid(row=0, column=1, sticky="e", padx=(8, 0))
-        self.cancel_btn.grid_remove()
-        self._set_progress_visible(False)
-
         # List Area (fast listbox)
         self.list_container = ctk.CTkFrame(self, fg_color="transparent")
         self.list_container.pack(fill="both", expand=True, padx=14, pady=(0, 10))
@@ -657,6 +630,42 @@ class ChatListView(ctk.CTkFrame):
         self.listbox.configure(yscrollcommand=self.scrollbar.set)
         self.listbox.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
+
+        # Export progress (overlay on top of list)
+        self.progress_frame = ctk.CTkFrame(
+            self.list_container,
+            fg_color=COLORS["bg"],
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS["border"],
+            height=46,
+        )
+        self.progress_frame.pack_propagate(False)
+
+        self.progress_header = ctk.CTkFrame(self.progress_frame, fg_color="transparent")
+        self.progress_header.pack(fill="x", padx=10, pady=(6, 0))
+        self.progress_header.grid_columnconfigure(0, weight=1)
+        self.progress_label = ctk.CTkLabel(self.progress_header, text="", text_color=COLORS["text_sec"])
+        self.progress_label.grid(row=0, column=0, sticky="w")
+        self.progress_chat_label = ctk.CTkLabel(self.progress_header, text="", text_color=COLORS["text_sec"])
+        self.progress_chat_label.grid(row=0, column=1, sticky="e")
+
+        self.progress_row = ctk.CTkFrame(self.progress_frame, fg_color="transparent")
+        self.progress_row.pack(fill="x", padx=10, pady=(6, 8))
+        self.progress_row.grid_columnconfigure(0, weight=1)
+        self.progress_bar = ctk.CTkProgressBar(self.progress_row, height=8, corner_radius=6, width=320)
+        self.progress_bar.grid(row=0, column=0, sticky="w")
+        self.cancel_btn = ModernButton(
+            self.progress_row,
+            text="×",
+            variant="secondary",
+            width=28,
+            height=26,
+            command=self._on_cancel_export,
+        )
+        self.cancel_btn.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.cancel_btn.grid_remove()
+        self._set_progress_visible(False)
 
         self.listbox.bind("<Double-Button-1>", self._on_double_click)
         self.listbox.bind("<Return>", self._on_double_click)
@@ -816,15 +825,11 @@ class ChatListView(ctk.CTkFrame):
     def _set_progress_visible(self, visible: bool):
         visible = bool(visible)
         if visible:
-            # Show progress below the list to avoid shifting the list down
-            if not self.progress_frame.winfo_ismapped():
-                self.progress_frame.pack(fill="x", padx=20, pady=(0, 12), before=self.export_btn)
-            if not self.progress_row.winfo_ismapped():
-                self.progress_row.pack(fill="x")
+            self.progress_frame.place(relx=0, rely=0, relwidth=1, height=46)
+            self.progress_frame.lift()
             self.cancel_btn.grid()
         else:
-            if self.progress_frame.winfo_ismapped():
-                self.progress_frame.pack_forget()
+            self.progress_frame.place_forget()
             self.cancel_btn.grid_remove()
             self.progress_chat_label.configure(text="")
             self.progress_label.configure(text="")

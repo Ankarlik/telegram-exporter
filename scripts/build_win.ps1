@@ -19,6 +19,6 @@ if (Test-Path $iconPng) {
     $iconArg = "--icon `"$iconIco`""
 }
 
-pyinstaller --windowed --onefile --name "TelegramExporter" $iconArg --collect-all customtkinter --collect-all telethon --collect-all faster_whisper --collect-all ctranslate2 --collect-all tokenizers --collect-all imageio_ffmpeg app.py
+pyinstaller --windowed --onefile --name "TelegramExporter" $iconArg --exclude-module app_legacy --collect-all customtkinter --collect-all telethon --collect-all faster_whisper --collect-all ctranslate2 --collect-all tokenizers --collect-all imageio_ffmpeg app.py
 
 Write-Host "EXE готов: dist\TelegramExporter.exe"

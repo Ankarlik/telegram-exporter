@@ -35,6 +35,7 @@ if [ -f "$ICON_PNG" ]; then
 fi
 
 eval "pyinstaller --windowed --name \"Telegram Exporter\" $ICON_ARG \
+  --exclude-module app_legacy \
   --collect-all customtkinter \
   --collect-all telethon \
   --collect-all faster_whisper \

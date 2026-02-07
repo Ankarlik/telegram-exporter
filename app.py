@@ -68,6 +68,17 @@ def _log_path() -> Path:
     return Path(os.path.expanduser("~/.tg_exporter/app.log"))
 
 
+def _redact_sensitive(text: str) -> str:
+    if not text:
+        return text
+    # Redact common secrets and identifiers from logs
+    text = re.sub(r"(?i)api[_-]?hash\s*[:=]\s*[A-Za-z0-9]+", "api_hash=<redacted>", text)
+    text = re.sub(r"(?i)api[_-]?id\s*[:=]\s*\d+", "api_id=<redacted>", text)
+    text = re.sub(r"(?i)session\s*[:=]\s*[A-Za-z0-9+/=_-]{20,}", "session=<redacted>", text)
+    text = re.sub(r"\+?\d{7,15}", "<redacted_phone>", text)
+    return text
+
+
 def _write_fatal_error(exc: BaseException) -> None:
     try:
         log_path = _log_path()
@@ -76,7 +87,8 @@ def _write_fatal_error(exc: BaseException) -> None:
             f.write("\n==== FATAL ====\n")
             f.write(datetime.datetime.now().isoformat())
             f.write("\n")
-            f.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+            details = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            f.write(_redact_sensitive(details))
             f.write("\n")
     except Exception:
         pass
@@ -861,6 +873,7 @@ class App(ctk.CTk):
         
         self.current_view = None
         self._load_config_file()
+        self._cleanup_temp_voice_files()
         
         # Start
         self.show_login()
@@ -888,7 +901,17 @@ class App(ctk.CTk):
     def show_settings(self):
         SettingsModal(self)
 
+    def _confirm_export_safety(self) -> bool:
+        return messagebox.askyesno(
+            "Внимание",
+            "Экспорт содержит личные данные и сохранится на диск.\n"
+            "Рекомендуется выбирать защищенную папку (не облако/Downloads).\n\n"
+            "Продолжить экспорт?",
+        )
+
     def show_export_dialog(self, dialog):
+        if not self._confirm_export_safety():
+            return
         path = filedialog.askdirectory(title="Куда сохранить экспорт?")
         if not path: return
         self._folder_active = False
@@ -1265,6 +1288,20 @@ class App(ctk.CTk):
     def set_voice_transcribe_enabled(self, value: bool):
         self.voice_transcribe_enabled = bool(value)
 
+    def _cleanup_temp_voice_files(self):
+        temp_dir = tempfile.gettempdir()
+        prefix = "tg_exporter_voice_"
+        try:
+            for name in os.listdir(temp_dir):
+                if name.startswith(prefix):
+                    path = os.path.join(temp_dir, name)
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     def _is_group_chat(self, dialog) -> bool:
         entity = getattr(dialog, "entity", None)
         if entity is None:
@@ -1322,7 +1359,7 @@ class App(ctk.CTk):
         suffix = ".ogg" if voice else ".mp4"
         tmp_path = None
         try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="tg_exporter_voice_") as tmp:
                 tmp_path = tmp.name
             msg.download_media(file=tmp_path)
             segments, _info = transcriber.transcribe(
@@ -1442,6 +1479,8 @@ class App(ctk.CTk):
         folder_name = self.current_folder
         if not folder_name or folder_name == "Все чаты":
             self.queue.put(("error", "Выберите папку для экспорта."))
+            return
+        if not self._confirm_export_safety():
             return
         dialogs = self._get_folder_dialogs(folder_name)
         if not dialogs:

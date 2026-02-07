@@ -787,24 +787,18 @@ class ChatListView(ctk.CTkFrame):
             self.progress_bar.configure(mode="determinate")
             self.progress_bar.set(0)
             self.progress_label.configure(text=f"Экспортировано 0/{total}")
-            self.status_lbl.configure(text=f"Экспорт: 0/{total} • {chat_name}")
         else:
             self.progress_bar.configure(mode="indeterminate")
             self.progress_bar.start()
             self.progress_label.configure(text="Экспорт...")
-            self.status_lbl.configure(text=f"Экспорт… • {chat_name}")
 
     def update_export_progress(self, count: int, total: Optional[int]):
         if total:
             frac = max(0.0, min(1.0, count / max(1, total)))
             self.progress_bar.set(frac)
             self.progress_label.configure(text=f"Экспортировано {count}/{total}")
-            chat = self.progress_chat_label.cget("text") or ""
-            self.status_lbl.configure(text=f"Экспорт: {count}/{total} • {chat}".strip(" •"))
         else:
             self.progress_label.configure(text=f"Экспортировано {count} сообщений...")
-            chat = self.progress_chat_label.cget("text") or ""
-            self.status_lbl.configure(text=f"Экспорт: {count} сообщений… • {chat}".strip(" •"))
 
     def finish_export(self, ok: bool, message: str):
         try:

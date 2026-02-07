@@ -13,6 +13,10 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import Optional
 
+
+class ExportCancelled(Exception):
+    pass
+
 import customtkinter as ctk
 from telethon import functions
 from telethon.errors import SessionPasswordNeededError
@@ -603,15 +607,25 @@ class ChatListView(ctk.CTkFrame):
         self.status_lbl.pack(fill="x", padx=20, pady=(0, 8))
 
         # Export progress (top)
-        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent", width=360)
+        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent", width=360, height=46)
         self.progress_frame.pack_propagate(False)
         self.progress_header = ctk.CTkFrame(self.progress_frame, fg_color="transparent")
         self.progress_header.pack(fill="x", padx=2, pady=(0, 6))
         self.progress_header.grid_columnconfigure(0, weight=1)
+        self.progress_header.grid_columnconfigure(1, weight=1)
         self.progress_label = ctk.CTkLabel(self.progress_header, text="", text_color=COLORS["text_sec"])
         self.progress_label.grid(row=0, column=0, sticky="w")
         self.progress_chat_label = ctk.CTkLabel(self.progress_header, text="", text_color=COLORS["text_sec"])
         self.progress_chat_label.grid(row=0, column=1, sticky="e")
+        self.cancel_btn = ModernButton(
+            self.progress_header,
+            text="Отмена",
+            variant="secondary",
+            width=90,
+            command=self._on_cancel_export,
+        )
+        self.cancel_btn.grid(row=0, column=2, sticky="e", padx=(10, 0))
+        self.cancel_btn.grid_remove()
         self.progress_bar = ctk.CTkProgressBar(self.progress_frame, height=8, corner_radius=6, width=320)
         self.progress_bar.pack(anchor="w")
         self.progress_frame.pack(anchor="w", padx=20, pady=(0, 12))
@@ -764,6 +778,8 @@ class ChatListView(ctk.CTkFrame):
         self._export_total = total
         self.progress_frame.pack(anchor="w", padx=20, pady=(0, 12), before=self.list_container)
         self.progress_chat_label.configure(text=chat_name)
+        self.cancel_btn.configure(state="normal")
+        self.cancel_btn.grid()
         if total:
             self.progress_bar.configure(mode="determinate")
             self.progress_bar.set(0)
@@ -789,7 +805,13 @@ class ChatListView(ctk.CTkFrame):
         self.progress_frame.pack_forget()
         self.progress_chat_label.configure(text="")
         self.progress_label.configure(text="")
+        self.cancel_btn.grid_remove()
         self.status_lbl.configure(text=message if ok else f"Ошибка: {message}")
+
+    def _on_cancel_export(self):
+        self.cancel_btn.configure(state="disabled")
+        self.progress_label.configure(text="Отмена...")
+        self.app.cancel_export()
 
 
 class SettingsModal(ctk.CTkToplevel):
@@ -842,6 +864,7 @@ class App(ctk.CTk):
         self.client = None
         self.phone_hash = None
         self.phone_number = None
+        self._cancel_export = threading.Event()
         self.all_dialogs = []
         self.folder_peers = {}
         self.folder_filters = {}
@@ -910,6 +933,7 @@ class App(ctk.CTk):
         )
 
     def show_export_dialog(self, dialog):
+        self._cancel_export.clear()
         if not self._confirm_export_safety():
             return
         path = filedialog.askdirectory(title="Куда сохранить экспорт?")
@@ -1480,6 +1504,7 @@ class App(ctk.CTk):
         if not folder_name or folder_name == "Все чаты":
             self.queue.put(("error", "Выберите папку для экспорта."))
             return
+        self._cancel_export.clear()
         if not self._confirm_export_safety():
             return
         dialogs = self._get_folder_dialogs(folder_name)
@@ -1504,10 +1529,19 @@ class App(ctk.CTk):
         self.queue.put(("folder_progress", (0, self._folder_total, folder_name)))
         self._export_next_in_folder()
 
+    def cancel_export(self):
+        self._cancel_export.set()
+        if self._folder_active:
+            self._folder_active = False
+
     def _export_next_in_folder(self):
         if self._folder_index >= self._folder_total:
             self._folder_active = False
             self.queue.put(("folder_done", self._folder_total))
+            return
+        if self._cancel_export.is_set():
+            self._folder_active = False
+            self.queue.put(("export_cancelled", None))
             return
         dialog = self._folder_queue[self._folder_index]
         self._folder_index += 1
@@ -1550,6 +1584,8 @@ class App(ctk.CTk):
 
     def _export_task(self, dialog, path):
         try:
+            if self._cancel_export.is_set():
+                raise ExportCancelled()
             c = self._get_client()
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             chat_title = sanitize_filename(dialog.name or "chat")
@@ -1645,6 +1681,8 @@ class App(ctk.CTk):
                 first = True
                 count = 0
                 for msg in c.iter_messages(dialog, reverse=True):
+                    if self._cancel_export.is_set():
+                        raise ExportCancelled()
                     is_out = bool(getattr(msg, "out", False))
                     if not first: f.write(",\n")
                     first = False
@@ -1868,6 +1906,8 @@ class App(ctk.CTk):
             if analytics_written:
                 done_msg += f", аналитика: {', '.join(analytics_written)}"
             self.queue.put(("export_done", done_msg))
+        except ExportCancelled:
+            self.queue.put(("export_cancelled", None))
         except Exception as e:
             msg = str(e)
             if "WinError 2" in msg or "No such file" in msg:
@@ -1916,15 +1956,21 @@ class App(ctk.CTk):
                     count, total = data
                     self.chats_view.update_export_progress(count, total)
                 elif kind == "export_done":
+                    self._cancel_export.clear()
                     self.chats_view.finish_export(True, data)
                     if self._folder_active:
                         self._append_folder_log(True)
                         self._export_next_in_folder()
                 elif kind == "export_error":
+                    self._cancel_export.clear()
                     self.chats_view.finish_export(False, data)
                     if self._folder_active:
                         self._append_folder_log(False)
                         self._export_next_in_folder()
+                elif kind == "export_cancelled":
+                    self._cancel_export.clear()
+                    self.chats_view.finish_export(True, "Экспорт отменен.")
+                    self._folder_active = False
                 elif kind == "folder_progress":
                     current, total, label = data
                     self.chats_view.show_folder_progress(current, total, label, self._folder_log)

@@ -608,7 +608,8 @@ class ChatListView(ctk.CTkFrame):
         self.status_lbl.pack(fill="x", padx=20, pady=(0, 8))
 
         # Export progress (top, reliable on macOS)
-        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent", width=360, height=46)
+        # Height must fit header + progress row; otherwise widgets overflow and overlap the list (Tk doesn't clip children).
+        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent", width=360, height=70)
         self.progress_frame.pack_propagate(False)
         self.progress_header = ctk.CTkFrame(self.progress_frame, fg_color="transparent")
         self.progress_header.pack(fill="x", padx=2, pady=(0, 6))

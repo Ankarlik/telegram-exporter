@@ -6,6 +6,7 @@ import queue
 import re
 import threading
 import tkinter as tk
+import tempfile
 import platform
 import traceback
 from pathlib import Path
@@ -480,6 +481,7 @@ class ChatListView(ctk.CTkFrame):
         self._popular_var = tk.BooleanVar(value=False)
         self._popular_min_var = tk.StringVar(value="5")
         self._analytics_var = tk.BooleanVar(value=False)
+        self._transcribe_var = tk.BooleanVar(value=False)
         
         # Header / Toolbar
         self.toolbar = ctk.CTkFrame(self, fg_color="transparent", height=60)
@@ -564,6 +566,16 @@ class ChatListView(ctk.CTkFrame):
             command=self._on_analytics_toggle,
         )
         self.analytics_check.pack(side="left")
+
+        self.transcribe_bar = ctk.CTkFrame(self, fg_color="transparent")
+        self.transcribe_bar.pack(fill="x", padx=20, pady=(0, 12))
+        self.transcribe_check = ctk.CTkCheckBox(
+            self.transcribe_bar,
+            text="Транскрибация голосовых (каналы)",
+            variable=self._transcribe_var,
+            command=self._on_transcribe_toggle,
+        )
+        self.transcribe_check.pack(side="left")
 
         # Search
         self.search_entry = ModernEntry(self, placeholder_text="Поиск чатов...")
@@ -694,6 +706,9 @@ class ChatListView(ctk.CTkFrame):
     def _export_folder(self):
         self.app.export_current_folder()
 
+    def _on_transcribe_toggle(self):
+        self.app.set_voice_transcribe_enabled(bool(self._transcribe_var.get()))
+
     def show_folder_progress(self, current, total, label, log_lines=None):
         if not total:
             return
@@ -818,6 +833,8 @@ class App(ctk.CTk):
         self.popular_enabled = False
         self.popular_min_reactions = 5
         self.analytics_enabled = False
+        self.voice_transcribe_enabled = False
+        self._whisper_model = None
         self._folder_active = False
         self._folder_queue = []
         self._folder_total = 0
@@ -1098,6 +1115,9 @@ class App(ctk.CTk):
     def set_analytics_enabled(self, value: bool):
         self.analytics_enabled = bool(value)
 
+    def set_voice_transcribe_enabled(self, value: bool):
+        self.voice_transcribe_enabled = bool(value)
+
     def _is_group_chat(self, dialog) -> bool:
         entity = getattr(dialog, "entity", None)
         if entity is None:
@@ -1109,6 +1129,73 @@ class App(ctk.CTk):
         if entity.__class__.__name__ == "Chat":
             return True
         return False
+
+    def _is_broadcast_channel(self, dialog) -> bool:
+        entity = getattr(dialog, "entity", None)
+        if entity is None:
+            return False
+        return bool(getattr(entity, "broadcast", False))
+
+    def _ensure_ffmpeg(self) -> bool:
+        try:
+            import imageio_ffmpeg
+            ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+            ffmpeg_dir = os.path.dirname(ffmpeg_path)
+            current_path = os.environ.get("PATH", "")
+            if ffmpeg_dir not in current_path:
+                os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
+            return True
+        except Exception:
+            return False
+
+    def _get_transcriber(self):
+        if self._whisper_model is not None:
+            return self._whisper_model
+        try:
+            from faster_whisper import WhisperModel
+        except Exception:
+            return None
+        if not self._ensure_ffmpeg():
+            return None
+        model_root = os.path.expanduser("~/.tg_exporter/models")
+        os.makedirs(model_root, exist_ok=True)
+        self._whisper_model = WhisperModel(
+            "tiny",
+            device="cpu",
+            compute_type="int8",
+            download_root=model_root,
+        )
+        return self._whisper_model
+
+    def _transcribe_voice(self, msg, transcriber) -> str | None:
+        voice = getattr(msg, "voice", None)
+        if not voice:
+            return None
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp:
+                tmp_path = tmp.name
+            msg.download_media(file=tmp_path)
+            segments, _info = transcriber.transcribe(
+                tmp_path,
+                language=None,
+                beam_size=1,
+                vad_filter=True,
+            )
+            parts = []
+            for seg in segments:
+                text = (seg.text or "").strip()
+                if text:
+                    parts.append(text)
+            return " ".join(parts).strip() or None
+        except Exception:
+            return None
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
     def _is_popular_candidate(self, dialog) -> bool:
         entity = getattr(dialog, "entity", None)
@@ -1314,10 +1401,14 @@ class App(ctk.CTk):
             has_topics = False
             is_forum = bool(getattr(getattr(dialog, "entity", None), "forum", False))
             analytics_enabled = self.analytics_enabled and self._is_group_chat(dialog)
+            transcribe_enabled = self.voice_transcribe_enabled and self._is_broadcast_channel(dialog)
             author_counts: dict[int, int] = {}
             author_messages: dict[int, list[str]] = {}
             author_meta: dict[int, dict[str, str]] = {}
             activity_counts: dict[str, int] = {}
+            transcriber = None
+            transcribe_failed = False
+            transcribe_warned = False
             
 
             def _date_key(value: str | None) -> str | None:
@@ -1404,6 +1495,23 @@ class App(ctk.CTk):
                             has_topics = True
                         topic_comment = _build_topic_comment(topic_id, topic_map) if has_topics else ""
                     formatted = _format_markdown_message(msg_data)
+                    if transcribe_enabled and not transcribe_failed:
+                        if getattr(msg, "voice", None):
+                            if transcriber is None:
+                                transcriber = self._get_transcriber()
+                                if transcriber is None:
+                                    transcribe_failed = True
+                            if transcriber is not None:
+                                text = self._transcribe_voice(msg, transcriber)
+                                if text:
+                                    formatted = f"{formatted}\n\n**Транскрипция:** {text}"
+                                else:
+                                    if not transcribe_warned:
+                                        transcribe_warned = True
+                                        self.queue.put(("info", "Не удалось распознать часть голосовых сообщений. Экспорт продолжен без транскрипции."))
+                            elif not transcribe_warned:
+                                transcribe_warned = True
+                                self.queue.put(("info", "Транскрибация недоступна (нужны зависимости). Экспорт продолжен без нее."))
                     rendered = f"{topic_comment}{formatted}" if topic_comment else formatted
                     if analytics_enabled:
                         author_id = msg_data.get("from_id")

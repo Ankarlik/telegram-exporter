@@ -37,6 +37,10 @@ fi
 eval "pyinstaller --windowed --name \"Telegram Exporter\" $ICON_ARG \
   --collect-all customtkinter \
   --collect-all telethon \
+  --collect-all faster_whisper \
+  --collect-all ctranslate2 \
+  --collect-all tokenizers \
+  --collect-all imageio_ffmpeg \
   app.py"
 
 APP_PATH="dist/Telegram Exporter.app"

@@ -988,6 +988,92 @@ class SettingsModal(ctk.CTkToplevel):
             self.destroy()
 
 
+class TopicPickerModal(ctk.CTkToplevel):
+    def __init__(self, parent, topics: list[dict]):
+        super().__init__(parent)
+        self.title("Выбор темы")
+        self.geometry("500x450")
+        self.resizable(False, True)
+        self.transient(parent)
+        self.grab_set()
+
+        self.result_topic_id: int | None = None
+        self.result_topic_title: str = ""
+        self.result_export_all: bool = False
+        self._topics = topics
+
+        ctk.CTkLabel(
+            self, text="Темы форум-чата",
+            font=(FONT_DISPLAY, 18, "bold"), text_color=COLORS["text"],
+        ).pack(padx=20, pady=(16, 4))
+        ctk.CTkLabel(
+            self, text="Выберите тему для экспорта или экспортируйте весь чат",
+            font=(FONT_TEXT, 12), text_color=COLORS["text_sec"],
+        ).pack(padx=20, pady=(0, 12))
+
+        list_frame = ctk.CTkFrame(self, fg_color="transparent")
+        list_frame.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+        self.listbox = tk.Listbox(
+            list_frame,
+            activestyle="none",
+            selectmode=tk.SINGLE,
+            borderwidth=0,
+            highlightthickness=1,
+            relief="flat",
+            font=(FONT_TEXT, 13),
+            bg=pick_color(COLORS["card"]),
+            fg=pick_color(COLORS["text"]),
+            selectbackground=pick_color(COLORS["primary"]),
+            selectforeground="#FFFFFF",
+            highlightbackground=pick_color(COLORS["border"]),
+            highlightcolor=pick_color(COLORS["border"]),
+        )
+        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
+        self.listbox.configure(yscrollcommand=scrollbar.set)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        for t in self._topics:
+            title = t.get("title") or "Без названия"
+            count = t.get("count")
+            label = f"{title} ({count} сообщ.)" if count else title
+            self.listbox.insert(tk.END, label)
+
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 16))
+        ModernButton(
+            btn_frame, text="Экспортировать тему",
+            command=self._on_export_topic,
+        ).pack(fill="x", pady=(0, 8))
+        ModernButton(
+            btn_frame, text="Экспортировать весь чат",
+            variant="secondary", command=self._on_export_all,
+        ).pack(fill="x")
+
+        self.listbox.bind("<Double-Button-1>", lambda e: self._on_export_topic())
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_export_topic(self):
+        sel = self.listbox.curselection()
+        if not sel:
+            return
+        t = self._topics[sel[0]]
+        self.result_topic_id = t.get("id")
+        self.result_topic_title = t.get("title") or ""
+        self.result_export_all = False
+        self.grab_release()
+        self.destroy()
+
+    def _on_export_all(self):
+        self.result_export_all = True
+        self.grab_release()
+        self.destroy()
+
+    def _on_close(self):
+        self.grab_release()
+        self.destroy()
+
+
 # --- MAIN APP CONTROLLER ---
 
 class App(ctk.CTk):
@@ -1078,11 +1164,27 @@ class App(ctk.CTk):
         self._cancel_export.clear()
         if not self._confirm_export_safety():
             return
+        topic_id = None
+        topic_title = None
+        if self._is_forum(dialog):
+            self.chats_view.status_lbl.configure(text="Загрузка тем...")
+            topics = self._load_topics(dialog)
+            self.chats_view.status_lbl.configure(text="")
+            if topics:
+                picker = TopicPickerModal(self, topics)
+                self.wait_window(picker)
+                if picker.result_export_all:
+                    pass
+                elif picker.result_topic_id is not None:
+                    topic_id = picker.result_topic_id
+                    topic_title = picker.result_topic_title
+                else:
+                    return
         path = filedialog.askdirectory(title="Куда сохранить экспорт?")
         if not path: return
         self._folder_active = False
         self.chats_view.status_lbl.configure(text="")
-        self._run_bg(self._export_task, dialog, path)
+        self._run_bg(self._export_task, dialog, path, topic_id, topic_title)
 
     # --- Logic ---
 
@@ -1493,6 +1595,32 @@ class App(ctk.CTk):
             return False
         return bool(getattr(entity, "broadcast", False))
 
+    def _is_forum(self, dialog) -> bool:
+        entity = getattr(dialog, "entity", None)
+        return bool(getattr(entity, "forum", False)) if entity else False
+
+    def _load_topics(self, dialog) -> list[dict]:
+        try:
+            c = self._get_client()
+            result = c(functions.channels.GetForumTopicsRequest(
+                channel=dialog,
+                offset_date=0,
+                offset_id=0,
+                offset_topic=0,
+                limit=100,
+            ))
+            topics = []
+            for t in getattr(result, "topics", []):
+                topic_id = getattr(t, "id", None)
+                title = normalize_text(getattr(t, "title", None))
+                count = getattr(t, "top_message", None)
+                if topic_id is not None and title:
+                    topics.append({"id": topic_id, "title": title, "count": count})
+            topics.sort(key=lambda x: x["title"].lower())
+            return topics
+        except Exception:
+            return []
+
     def _ensure_ffmpeg(self) -> bool:
         try:
             import imageio_ffmpeg
@@ -1731,7 +1859,7 @@ class App(ctk.CTk):
         except Exception:
             pass
 
-    def _export_task(self, dialog, path):
+    def _export_task(self, dialog, path, topic_id=None, topic_title=None):
         try:
             if self._cancel_export.is_set():
                 raise ExportCancelled()
@@ -1740,6 +1868,11 @@ class App(ctk.CTk):
             chat_title = sanitize_filename(dialog.name or "chat")
             if len(chat_title) > 60:
                 chat_title = chat_title[:60].rstrip("_ ")
+            if topic_title:
+                safe_topic = sanitize_filename(topic_title)
+                if len(safe_topic) > 40:
+                    safe_topic = safe_topic[:40].rstrip("_ ")
+                chat_title = f"{chat_title}_topic_{safe_topic}"
             export_dir = os.path.join(path, f"{chat_title}_{timestamp}")
             try:
                 os.makedirs(export_dir, exist_ok=True)
@@ -1825,32 +1958,45 @@ class App(ctk.CTk):
             elif self.date_period_days > 0:
                 date_from = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=self.date_period_days)
 
+            count_kwargs: dict = {"limit": 0}
+            if topic_id is not None:
+                count_kwargs["reply_to"] = topic_id
+
             total = None
             try:
-                total_all = getattr(c.get_messages(dialog, limit=0), "total", None)
+                total_all = getattr(c.get_messages(dialog, **count_kwargs), "total", None)
                 if date_from is not None and total_all:
-                    before_from = getattr(c.get_messages(dialog, limit=0, offset_date=date_from), "total", 0) or 0
+                    before_from = getattr(c.get_messages(dialog, offset_date=date_from, **count_kwargs), "total", 0) or 0
                     total = max(0, total_all - before_from)
                     if date_to is not None:
                         after_to = date_to + datetime.timedelta(days=1)
-                        before_to = getattr(c.get_messages(dialog, limit=0, offset_date=after_to), "total", 0) or 0
+                        before_to = getattr(c.get_messages(dialog, offset_date=after_to, **count_kwargs), "total", 0) or 0
                         total = max(0, total - (total_all - before_to))
                 elif date_to is not None and total_all:
                     after_to = date_to + datetime.timedelta(days=1)
-                    before_to = getattr(c.get_messages(dialog, limit=0, offset_date=after_to), "total", 0) or 0
+                    before_to = getattr(c.get_messages(dialog, offset_date=after_to, **count_kwargs), "total", 0) or 0
                     total = before_to
                 else:
                     total = total_all
             except Exception:
                 total = None
-            self.queue.put(("export_start", (dialog.name or "Чат", total)))
+            export_label = dialog.name or "Чат"
+            if topic_title:
+                export_label = f"{export_label} → {topic_title}"
+            self.queue.put(("export_start", (export_label, total)))
 
             iter_kwargs: dict = {"reverse": True}
+            if topic_id is not None:
+                iter_kwargs["reply_to"] = topic_id
             if date_from is not None:
                 iter_kwargs["offset_date"] = date_from
 
             with open(full_path, "w", encoding="utf-8") as f:
-                f.write('{\n  "name": ' + json.dumps(dialog.name, ensure_ascii=False) + ',\n  "messages": [\n')
+                json_header = '{\n  "name": ' + json.dumps(dialog.name, ensure_ascii=False)
+                if topic_title:
+                    json_header += ',\n  "topic": ' + json.dumps(topic_title, ensure_ascii=False)
+                json_header += ',\n  "messages": [\n'
+                f.write(json_header)
                 first = True
                 count = 0
                 date_to_end = (date_to + datetime.timedelta(days=1)) if date_to else None

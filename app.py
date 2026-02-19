@@ -527,7 +527,7 @@ class ChatListView(ctk.CTkFrame):
         self._popular_min_var = tk.StringVar(value="5")
         self._analytics_var = tk.BooleanVar(value=False)
         self._transcribe_var = tk.BooleanVar(value=False)
-        self._period_options = ["Все время", "Неделя", "Месяц", "3 месяца", "Год"]
+        self._period_options = ["Все время", "Неделя", "Месяц", "3 месяца", "Год", "Свой период"]
         self._period_days_map = {"Все время": 0, "Неделя": 7, "Месяц": 30, "3 месяца": 90, "Год": 365}
         self._period_var = tk.StringVar(value="Все время")
         
@@ -580,6 +580,23 @@ class ChatListView(ctk.CTkFrame):
             height=32,
         )
         self.period_menu.pack(side="left", padx=(10, 0))
+
+        # Custom date range (hidden by default)
+        self.date_range_bar = ctk.CTkFrame(self, fg_color="transparent")
+        self._date_from_var = tk.StringVar()
+        self._date_to_var = tk.StringVar()
+        ctk.CTkLabel(self.date_range_bar, text="От", text_color=COLORS["text_sec"]).pack(side="left")
+        self.date_from_entry = ModernEntry(self.date_range_bar, placeholder_text="ГГГГ-ММ-ДД", width=130, textvariable=self._date_from_var)
+        self.date_from_entry.pack(side="left", padx=(6, 0))
+        ctk.CTkLabel(self.date_range_bar, text="До", text_color=COLORS["text_sec"]).pack(side="left", padx=(14, 0))
+        self.date_to_entry = ModernEntry(self.date_range_bar, placeholder_text="ГГГГ-ММ-ДД", width=130, textvariable=self._date_to_var)
+        self.date_to_entry.pack(side="left", padx=(6, 0))
+        self.date_range_hint = ctk.CTkLabel(self.date_range_bar, text="UTC", text_color=COLORS["text_sec"])
+        self.date_range_hint.pack(side="left", padx=(10, 0))
+        self.date_from_entry.bind("<FocusOut>", self._apply_custom_dates)
+        self.date_to_entry.bind("<FocusOut>", self._apply_custom_dates)
+        self.date_from_entry.bind("<Return>", self._apply_custom_dates)
+        self.date_to_entry.bind("<Return>", self._apply_custom_dates)
 
         # Words per file slider
         self.words_bar = ctk.CTkFrame(self, fg_color="transparent")
@@ -783,8 +800,34 @@ class ChatListView(ctk.CTkFrame):
         self.app.export_current_folder()
 
     def _on_period_change(self, value):
-        days = self._period_days_map.get(value, 0)
-        self.app.set_date_period(days)
+        if value == "Свой период":
+            if not self.date_range_bar.winfo_ismapped():
+                self.date_range_bar.pack(fill="x", padx=20, pady=(0, 12), after=self.folder_bar)
+            self.app.set_date_period(0)
+            self._apply_custom_dates()
+        else:
+            if self.date_range_bar.winfo_ismapped():
+                self.date_range_bar.pack_forget()
+            self.app.set_custom_date_range(None, None)
+            days = self._period_days_map.get(value, 0)
+            self.app.set_date_period(days)
+
+    def _apply_custom_dates(self, *_args):
+        raw_from = self._date_from_var.get().strip()
+        raw_to = self._date_to_var.get().strip()
+        d_from = self._parse_date(raw_from)
+        d_to = self._parse_date(raw_to)
+        self.app.set_custom_date_range(d_from, d_to)
+
+    def _parse_date(self, text: str):
+        if not text:
+            return None
+        for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
+            try:
+                return datetime.datetime.strptime(text, fmt).replace(tzinfo=datetime.timezone.utc)
+            except ValueError:
+                continue
+        return None
 
     def _on_transcribe_toggle(self):
         self.app.set_voice_transcribe_enabled(bool(self._transcribe_var.get()))
@@ -934,6 +977,8 @@ class App(ctk.CTk):
         self.analytics_enabled = False
         self.voice_transcribe_enabled = False
         self.date_period_days = 0
+        self.custom_date_from = None
+        self.custom_date_to = None
         self._whisper_model = None
         self._folder_active = False
         self._folder_queue = []
@@ -1374,6 +1419,10 @@ class App(ctk.CTk):
     def set_date_period(self, days: int):
         self.date_period_days = max(0, int(days))
 
+    def set_custom_date_range(self, date_from, date_to):
+        self.custom_date_from = date_from
+        self.custom_date_to = date_to
+
     def _cleanup_temp_voice_files(self):
         temp_dir = tempfile.gettempdir()
         prefix = "tg_exporter_voice_"
@@ -1730,16 +1779,28 @@ class App(ctk.CTk):
                 md_current = ""
                 md_word_count = 0
 
-            date_cutoff = None
-            if self.date_period_days > 0:
-                date_cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=self.date_period_days)
+            date_from = None
+            date_to = None
+            if self.custom_date_from or self.custom_date_to:
+                date_from = self.custom_date_from
+                date_to = self.custom_date_to
+            elif self.date_period_days > 0:
+                date_from = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=self.date_period_days)
 
             total = None
             try:
                 total_all = getattr(c.get_messages(dialog, limit=0), "total", None)
-                if date_cutoff is not None and total_all:
-                    before_cutoff = getattr(c.get_messages(dialog, limit=0, offset_date=date_cutoff), "total", 0) or 0
-                    total = max(0, total_all - before_cutoff)
+                if date_from is not None and total_all:
+                    before_from = getattr(c.get_messages(dialog, limit=0, offset_date=date_from), "total", 0) or 0
+                    total = max(0, total_all - before_from)
+                    if date_to is not None:
+                        after_to = date_to + datetime.timedelta(days=1)
+                        before_to = getattr(c.get_messages(dialog, limit=0, offset_date=after_to), "total", 0) or 0
+                        total = max(0, total - (total_all - before_to))
+                elif date_to is not None and total_all:
+                    after_to = date_to + datetime.timedelta(days=1)
+                    before_to = getattr(c.get_messages(dialog, limit=0, offset_date=after_to), "total", 0) or 0
+                    total = before_to
                 else:
                     total = total_all
             except Exception:
@@ -1747,16 +1808,19 @@ class App(ctk.CTk):
             self.queue.put(("export_start", (dialog.name or "Чат", total)))
 
             iter_kwargs: dict = {"reverse": True}
-            if date_cutoff is not None:
-                iter_kwargs["offset_date"] = date_cutoff
+            if date_from is not None:
+                iter_kwargs["offset_date"] = date_from
 
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write('{\n  "name": ' + json.dumps(dialog.name, ensure_ascii=False) + ',\n  "messages": [\n')
                 first = True
                 count = 0
+                date_to_end = (date_to + datetime.timedelta(days=1)) if date_to else None
                 for msg in c.iter_messages(dialog, **iter_kwargs):
                     if self._cancel_export.is_set():
                         raise ExportCancelled()
+                    if date_to_end and hasattr(msg, "date") and msg.date and msg.date >= date_to_end:
+                        break
                     is_out = bool(getattr(msg, "out", False))
                     if not first: f.write(",\n")
                     first = False

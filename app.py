@@ -1858,12 +1858,19 @@ class App(ctk.CTk):
             self.transcription_language = self.api_creds.get("transcription_language", "multi") or "multi"
             self.transcription_provider = self.api_creds.get("transcription_provider", "local") or "local"
             self.deepgram_api_key = self.api_creds.get("deepgram_api_key", "") or ""
+            if self.api_creds.get("api_id"):
+                raw = str(self.api_creds["api_id"])
+                digits = "".join(c for c in raw if c.isdigit())
+                if digits:
+                    self.api_creds["api_id"] = digits
         except:
             pass
 
     def _load_config(self): return self.api_creds
 
     def save_config(self, api_id, api_hash):
+        api_id = (api_id or "").strip()
+        api_id = "".join(c for c in api_id if c.isdigit()) or api_id
         old_api_id = self.api_creds.get("api_id")
         old_api_hash = self.api_creds.get("api_hash")
         session_str = self.api_creds.get("session")
@@ -1909,9 +1916,14 @@ class App(ctk.CTk):
                 if session_str:
                     self.api_creds["session"] = session_str
             session = StringSession(session_str) if session_str else StringSession()
+            api_id_raw = self.api_creds.get("api_id") or ""
+            api_id_digits = "".join(c for c in str(api_id_raw) if c.isdigit())
+            if not api_id_digits:
+                return self.client
+            api_id_int = int(api_id_digits)
             self.client = TelegramClient(
                 session,
-                int(self.api_creds["api_id"]),
+                api_id_int,
                 self.api_creds["api_hash"],
             )
         return self.client

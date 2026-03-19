@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-12
+          - os: macos-13
             dmg: TelegramExporter-mac-intel.dmg
           - os: macos-14
             dmg: TelegramExporter-mac-arm64.dmg

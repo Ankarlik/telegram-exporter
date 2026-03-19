@@ -14,7 +14,7 @@ $iconIco = Join-Path (Get-Location) "icons\app.ico"
 $iconArg = ""
 
 if (Test-Path $iconPng) {
-    pip install pillow
+    python -m pip install pillow
     python scripts\make_icons.py --in $iconPng --out $iconIco
     $iconArg = "--icon `"$iconIco`""
 }

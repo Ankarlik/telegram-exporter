@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/morf3uzzz/telegram-exporter/main/assets/app_icon.png" width="128" alt="Telegram Exporter Logo">
+  <img src="assets/app_icon.png" width="128" alt="Telegram Exporter Logo">
   
   <h1>Telegram Exporter</h1>
   

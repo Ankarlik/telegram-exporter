@@ -66,7 +66,7 @@ class LoginView(ctk.CTkFrame):
         # Кнопки настройки API
         self._settings_btn = AppButton(
             self._card, text="Настроить API ключи", variant="secondary",
-            command=self._app.show_settings,
+            command=self._app.show_api_keys,
         )
         self._settings_btn.pack(padx=pad, fill="x", pady=(0, SPACING["xs"]))
 

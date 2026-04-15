@@ -4,10 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-VENV_DIR="${VENV_DIR:-.venv}"
-python3 -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
-
 # Архитектура сборки. Если переменная не задана — берём архитектуру хоста,
 # чтобы не пытаться собрать x86_64-бинарь на Apple Silicon раннере.
 if [ -z "${TARGET_ARCH:-}" ]; then
@@ -18,6 +14,37 @@ if [ -z "${TARGET_ARCH:-}" ]; then
   esac
 fi
 echo "Building for TARGET_ARCH=$TARGET_ARCH"
+
+# Если собираемся в x86_64 на Apple Silicon — нужно самопереподнять скрипт
+# через Rosetta (/usr/bin/arch -x86_64), иначе universal2-Python будет
+# выполняться как arm64 и pyinstaller соберёт arm64-бинарь.
+HOST_ARCH="$(uname -m)"
+if [ "$TARGET_ARCH" = "x86_64" ] && [ "$HOST_ARCH" = "arm64" ] && [ "${_BUILD_REEXEC:-0}" != "1" ]; then
+  if [ ! -x /usr/bin/arch ]; then
+    echo "Ошибка: нет /usr/bin/arch для перезапуска под Rosetta" >&2
+    exit 1
+  fi
+  echo "Перезапуск под Rosetta (arch -x86_64)..."
+  _BUILD_REEXEC=1 exec /usr/bin/arch -x86_64 /bin/bash "$0" "$@"
+fi
+
+# Выбор venv и python: для Intel-сборки используем universal2 python.org
+# (он пришёл как pkg-установщик), запущенный под x86_64.
+if [ "$TARGET_ARCH" = "x86_64" ]; then
+  VENV_DIR="${VENV_DIR:-.venv_intel}"
+  PYTHON_BIN="${PYTHON_BIN:-/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11}"
+  if [ ! -x "$PYTHON_BIN" ]; then
+    echo "Ошибка: не найден $PYTHON_BIN (нужен python.org universal2 3.11)" >&2
+    exit 1
+  fi
+else
+  VENV_DIR="${VENV_DIR:-.venv}"
+  PYTHON_BIN="${PYTHON_BIN:-python3}"
+fi
+
+"$PYTHON_BIN" -m venv "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
+python -c "import platform; print('venv Python arch:', platform.machine())"
 
 pip install -r requirements.txt
 pip install pyinstaller

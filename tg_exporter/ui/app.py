@@ -135,6 +135,10 @@ class App(ctk.CTk):
     def show_settings(self) -> None:
         SettingsModal(self)
 
+    def show_api_keys(self) -> None:
+        from .views.api_keys_modal import ApiKeysModal
+        ApiKeysModal(self)
+
     def show_help(self) -> None:
         HelpModal(self)
 

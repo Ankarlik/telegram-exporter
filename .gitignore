@@ -11,6 +11,7 @@ __pycache__/
 build/
 dist/
 tmp_artifacts/
+icons/app.iconset/
 
 # Local sessions (runtime, в домашней директории)
 telegram_session.session

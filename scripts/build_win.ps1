@@ -1,4 +1,6 @@
 $ErrorActionPreference = "Stop"
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location (Join-Path $root "..")
@@ -6,8 +8,17 @@ Set-Location (Join-Path $root "..")
 python -m venv .venv
 . .venv\Scripts\Activate.ps1
 
-pip install -r requirements.txt
-pip install pyinstaller
+python -m pip install --upgrade pip
+if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
+
+python -m pip install -r requirements.txt
+if ($LASTEXITCODE -ne 0) { throw "pip install requirements failed" }
+
+python -m pip install pyinstaller
+if ($LASTEXITCODE -ne 0) { throw "pip install pyinstaller failed" }
+
+python -c "import customtkinter, telethon, faster_whisper, keyring, keyring.backends; print('deps OK')"
+if ($LASTEXITCODE -ne 0) { throw "dependency import smoke-test failed" }
 
 $iconPng = Join-Path (Get-Location) "assets\app_icon.png"
 $iconIco = Join-Path (Get-Location) "icons\app.ico"

@@ -1,7 +1,7 @@
 # Runtime dependencies for Telegram Exporter.
-# Версии закреплены по major/minor для воспроизводимости и защиты
-# от поломок из-за мажорных обновлений. Patch-security-апдейты
-# подхватываются автоматически внутри диапазона.
+# Versions pinned by major/minor for reproducibility and protection
+# against breakage from major upgrades. Patch-security updates
+# are picked up automatically within the range.
 
 # Telegram API client
 telethon>=1.36,<2.0
@@ -9,16 +9,16 @@ telethon>=1.36,<2.0
 # UI framework
 customtkinter>=5.2,<6.0
 
-# Системное хранилище секретов
+# System secrets storage
 keyring>=24.0,<26.0
 
-# ffmpeg для конвертации аудио
+# ffmpeg for audio conversion
 imageio-ffmpeg>=0.4.9,<1.0
 
-# SOCKS-прокси для telethon (опционально, но сборка ожидает наличие)
+# SOCKS proxy for telethon (optional, but build expects it)
 PySocks>=1.7,<2.0
 
-# Локальная транскрипция Whisper
+# Local Whisper transcription
 faster-whisper>=1.0,<2.0
 
-# Deepgram работает через стандартный urllib, доп. зависимостей не требует.
+# Deepgram uses stdlib urllib, no extra deps required.
